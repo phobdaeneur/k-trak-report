@@ -9,12 +9,12 @@ const signAccessToken = async (payload) => {
   return new Promise((resolve, reject) => {
     jwt.sign(
       {
-        exp: Math.floor(Date.now() / 1000) + 60 * 60, // 1 hour
         data: payload,
       },
       process.env.SECRET_KEY,
       {
         algorithm: "HS256",
+		    expiresIn: "7 days",
       },
       function (err, token) {
         if (err) {
