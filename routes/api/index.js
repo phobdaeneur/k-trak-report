@@ -1,4 +1,5 @@
 const express = require("express");
+const { Date } = require("mssql");
 const router = express.Router();
 const { pool_zb, pool_zb_report } = require("../../config/db");
 const ApiError = require("../../error/ApiError");
@@ -399,30 +400,57 @@ FROM	ZebraDB_Log.dbo.log_msg b_lm
                         );
 
                         if (result3.recordset.length > 5 && max - oilOff > 20) {
-                          arr.push({
-                            local_timestamp: dateEnginOn,
-                            maxOil: max,
-                            distance: result2.recordset[j].distance,
-                            time_off: result2.recordset[j].time_off,
-                            oil_off: oilOff,
-                            distance_off: result2.recordset[j].distance_off,
-                            veh_id: vID,
-                            timeStart: result4.recordset[0].timeOff,
-                            oilStart: result4.recordset[0].oil,
-                            disStart: result4.recordset[0].distance,
-                            timeEnd: result4.recordset[1].timeOff,
-                            oilEnd: result4.recordset[1].oil,
-                            disEnd: result4.recordset[1].distance,
-                            registration: result.recordset[i].registration,
-                            veh_type:
-                              result5.recordset.length < 1
-                                ? 0
-                                : result5.recordset[0].veh_type,
-                            veh_type_value:
-                              result5.recordset.length < 1
-                                ? 0
-                                : result5.recordset[0].value,
-                          });
+                          if (j == 0) {
+                            arr.push({
+                              local_timestamp: dateEnginOn,
+                              maxOil: max,
+                              distance: result2.recordset[j].distance,
+                              time_off: result4.recordset[0].timeOff,
+                              oil_off: result4.recordset[0].oil,
+                              distance_off: result4.recordset[0].distance,
+                              veh_id: vID,
+                              timeStart: result2.recordset[j].time_off,
+                              oilStart: oilOff,
+                              disStart: result2.recordset[j].distance_off,
+                              timeEnd: result4.recordset[1].timeOff,
+                              oilEnd: result4.recordset[1].oil,
+                              disEnd: result4.recordset[1].distance,
+                              registration: result.recordset[i].registration,
+                              veh_type:
+                                result5.recordset.length < 1
+                                  ? 0
+                                  : result5.recordset[0].veh_type,
+                              veh_type_value:
+                                result5.recordset.length < 1
+                                  ? 0
+                                  : result5.recordset[0].value,
+                            });
+                          } else {
+                            arr.push({
+                              local_timestamp: dateEnginOn,
+                              maxOil: max,
+                              distance: result2.recordset[j].distance,
+                              time_off: result2.recordset[j].time_off,
+                              oil_off: oilOff,
+                              distance_off: result2.recordset[j].distance_off,
+                              veh_id: vID,
+                              timeStart: result4.recordset[0].timeOff,
+                              oilStart: result4.recordset[0].oil,
+                              disStart: result4.recordset[0].distance,
+                              timeEnd: result4.recordset[1].timeOff,
+                              oilEnd: result4.recordset[1].oil,
+                              disEnd: result4.recordset[1].distance,
+                              registration: result.recordset[i].registration,
+                              veh_type:
+                                result5.recordset.length < 1
+                                  ? 0
+                                  : result5.recordset[0].veh_type,
+                              veh_type_value:
+                                result5.recordset.length < 1
+                                  ? 0
+                                  : result5.recordset[0].value,
+                            });
+                          }
                         } else {
                           arr.push({
                             local_timestamp: 0,
@@ -484,13 +512,13 @@ router.get(
   isAuth,
   async (req, res, next) => {
     const { vehicleId, dateStart, dateEnd } = req.params;
-    if (!vehicleId || !dateStart || !dateEnd) {
+    if (!vehicleId) {
       return next(ApiError.badRequest("Invalid credentials!"));
     } else {
       try {
         const pool_zbq = await pool_zb();
         const pool_zbrq = await pool_zb_report();
-        var output = [];
+
         //EnginOn
         const result2 = await pool_zbq.query(`
               SELECT ISNULL(a_e.evt_desc, 'LOCATION') AS event
@@ -536,126 +564,201 @@ router.get(
             `);
 
         const result4 = await pool_zbq.query(`
-  SELECT *
-FROM (SELECT  top 1
-a_lm.local_timestamp as timeOff
-, (select dbo.GetEngineOff_FuelLevel(a_lm.veh_id,a_lm.local_timestamp)) as oil
-, (select top 1 c_ld.distance as distance
-from ZebraDB_Log.dbo.log_msg c_lm
-LEFT JOIN ZebraDB_Log.dbo.log_msg_distance c_ld     ON  c_ld.ref_idx = c_lm.idx
-WHERE c_lm.veh_id = ${vehicleId} 
-AND c_lm.local_timestamp <= a_lm.local_timestamp 
-AND c_ld.distance is not null
-order by c_lm.local_timestamp desc)
- as distance
-FROM	ZebraDB_Log.dbo.log_msg a_lm
-LEFT JOIN ZebraDB_Log.dbo.log_msg_evt a_le			ON  a_lm.idx = a_le.ref_idx        
-  LEFT JOIN ZebraDB.dbo.vehicle a_v					ON  a_lm.veh_id = a_v.veh_id
-LEFT JOIN ZebraDB.dbo.model a_m						ON a_m.model_id = a_v.model
-  LEFT JOIN ZebraDB_Log.dbo.log_msg_distance a_ld     ON  a_ld.ref_idx = a_lm.idx                            
-WHERE a_lm.veh_id = ${vehicleId} 
-AND a_lm.local_timestamp between '${dateStart}' AND '${dateEnd}'
-AND a_le.evt_id = 22
-order by a_lm.local_timestamp) first
-
-UNION ALL
-
-SELECT * 
-FROM (SELECT top 1
-b_lm.local_timestamp as timeOff
-, ISNULL(dbo.CalculateFuelLevel(b_m.max_empty_voltage, b_m.max_fuel_voltage, b_m.max_fuel, b_lm.analog_level), '-') as oil
-, (select top 1 c_ld.distance as distance
-from ZebraDB_Log.dbo.log_msg c_lm
-LEFT JOIN ZebraDB_Log.dbo.log_msg_distance c_ld     ON  c_ld.ref_idx = c_lm.idx
-WHERE c_lm.veh_id = ${vehicleId}
-AND c_lm.local_timestamp <= b_lm.local_timestamp 
-AND c_ld.distance is not null
-order by c_lm.local_timestamp desc)
- as distance
-FROM	ZebraDB_Log.dbo.log_msg b_lm
-LEFT JOIN ZebraDB_Log.dbo.log_msg_evt b_le			ON  b_lm.idx = b_le.ref_idx 
-  LEFT JOIN ZebraDB.dbo.vehicle b_v					ON  b_lm.veh_id = b_v.veh_id
-LEFT JOIN ZebraDB.dbo.model b_m						ON  b_m.model_id = b_v.model
-  LEFT JOIN ZebraDB_Log.dbo.log_msg_distance b_ld     ON  b_ld.ref_idx = b_lm.idx                            
-WHERE b_lm.veh_id = ${vehicleId} 
-AND b_lm.local_timestamp between '${dateStart}' AND '${dateEnd}'
-  AND b_le.evt_id = 23
-ORDER BY b_lm.local_timestamp DESC) last
-`);
+            SELECT *
+          FROM (SELECT  top 1
+          a_lm.local_timestamp as timeOff
+          , (select dbo.GetEngineOff_FuelLevel(a_lm.veh_id,a_lm.local_timestamp)) as oil
+          , (select top 1 c_ld.distance as distance
+          from ZebraDB_Log.dbo.log_msg c_lm
+          LEFT JOIN ZebraDB_Log.dbo.log_msg_distance c_ld     ON  c_ld.ref_idx = c_lm.idx
+          WHERE c_lm.veh_id = ${vehicleId} 
+          AND c_lm.local_timestamp <= a_lm.local_timestamp 
+          AND c_ld.distance is not null
+          order by c_lm.local_timestamp desc)
+           as distance
+          FROM	ZebraDB_Log.dbo.log_msg a_lm
+          LEFT JOIN ZebraDB_Log.dbo.log_msg_evt a_le			ON  a_lm.idx = a_le.ref_idx        
+            LEFT JOIN ZebraDB.dbo.vehicle a_v					ON  a_lm.veh_id = a_v.veh_id
+          LEFT JOIN ZebraDB.dbo.model a_m						ON a_m.model_id = a_v.model
+            LEFT JOIN ZebraDB_Log.dbo.log_msg_distance a_ld     ON  a_ld.ref_idx = a_lm.idx                            
+          WHERE a_lm.veh_id = ${vehicleId} 
+          AND a_lm.local_timestamp between '${dateStart}' AND '${dateEnd}'
+          AND a_le.evt_id = 22
+          order by a_lm.local_timestamp) first
+          
+          UNION ALL
+          
+          SELECT * 
+          FROM (SELECT top 1
+          b_lm.local_timestamp as timeOff
+          , ISNULL(dbo.CalculateFuelLevel(b_m.max_empty_voltage, b_m.max_fuel_voltage, b_m.max_fuel, b_lm.analog_level), '-') as oil
+          , (select top 1 c_ld.distance as distance
+          from ZebraDB_Log.dbo.log_msg c_lm
+          LEFT JOIN ZebraDB_Log.dbo.log_msg_distance c_ld     ON  c_ld.ref_idx = c_lm.idx
+          WHERE c_lm.veh_id = ${vehicleId}
+          AND c_lm.local_timestamp <= b_lm.local_timestamp 
+          AND c_ld.distance is not null
+          order by c_lm.local_timestamp desc)
+           as distance
+          FROM	ZebraDB_Log.dbo.log_msg b_lm
+          LEFT JOIN ZebraDB_Log.dbo.log_msg_evt b_le			ON  b_lm.idx = b_le.ref_idx 
+            LEFT JOIN ZebraDB.dbo.vehicle b_v					ON  b_lm.veh_id = b_v.veh_id
+          LEFT JOIN ZebraDB.dbo.model b_m						ON  b_m.model_id = b_v.model
+            LEFT JOIN ZebraDB_Log.dbo.log_msg_distance b_ld     ON  b_ld.ref_idx = b_lm.idx                            
+          WHERE b_lm.veh_id = ${vehicleId} 
+          AND b_lm.local_timestamp between '${dateStart}' AND '${dateEnd}'
+            AND b_le.evt_id = 23
+          ORDER BY b_lm.local_timestamp DESC) last
+          `);
 
         const result5 = await pool_zbrq.query(`
-              select o.veh_type, o.value
-              , ov.veh_id
-              
-        from ZebraDB_Report.dbo.oil_veh_vehType ov
-        left join ZebraDB_Report.dbo.oil_vehicleType o			on o.vehTypeId = ov.vehtype_id
-        where ov.veh_id = ${vID}
-                  `);
+                        select o.veh_type, o.value
+                        , ov.veh_id
+                        
+                  from ZebraDB_Report.dbo.oil_veh_vehType ov
+                  left join ZebraDB_Report.dbo.oil_vehicleType o			on o.vehTypeId = ov.vehtype_id
+                  where ov.veh_id = ${vehicleId}
+                            `);
 
         var arr = [];
-        for (var j = 0; j < result2.recordset.length; j++) {
-          if (!result2.recordset) {
-            return next(ApiError.badRequest("Invalid credentials!"));
-          } else {
-            try {
-              var dateEnginOn = result2.recordset[j].local_timestamp;
-              var resetEvent = result2.recordset[j].resetEvent;
-              var oilOff = parseInt(result2.recordset[j].oil_off);
+        if (result2.recordset.length < 1) {
+          // No Engine on
+          arr.push({
+            local_timestamp: 0,
+            maxOil: 0,
+            distance: 0,
+            time_off: 0,
+            oil_off: 0,
+            distance_off: 0,
+            timeStart: 0,
+            oilStart: 0,
+            disStart: 0,
+            timeEnd: 0,
+            oilEnd: 0,
+            disEnd: 0,
+            veh_type:
+              result5.recordset.length < 1 ? 0 : result5.recordset[0].veh_type,
+            veh_type_value:
+              result5.recordset.length < 1 ? 0 : result5.recordset[0].value,
+          });
+        } else {
+          for (var j = 0; j < result2.recordset.length; j++) {
+            if (!result2.recordset) {
+              return next(ApiError.badRequest("Invalid credentials!"));
+            } else {
+              try {
+                var dateEnginOn = result2.recordset[j].local_timestamp;
+                var resetEvent = result2.recordset[j].resetEvent;
+                var oilOff = parseInt(result2.recordset[j].oil_off);
 
-              //EnginOn to EnginOff
-              const result3 = await pool_zbq.query(`
-                            SELECT a_lm.local_timestamp
-                                  ,a_lm.idx
-                                  ,ISNULL(dbo.CalculateFuelLevel(a_m.max_empty_voltage, a_m.max_fuel_voltage, a_m.max_fuel, a_lm.analog_level), '-') as oil
+                //EnginOn to EnginOff
+                const result3 = await pool_zbq.query(`
+                                      SELECT a_lm.local_timestamp
+                                            ,a_lm.idx
+                                            ,ISNULL(dbo.CalculateFuelLevel(a_m.max_empty_voltage, a_m.max_fuel_voltage, a_m.max_fuel, a_lm.analog_level), '-') as oil
+          
+                                      FROM	ZebraDB_Log.dbo.log_msg a_lm
+                                      LEFT JOIN ZebraDB_Log.dbo.log_msg_evt a_le      ON  a_lm.idx = a_le.ref_idx
+                                      LEFT JOIN ZebraDB.dbo.vehicle a_v               ON a_lm.veh_id = a_v.veh_id
+                                      LEFT JOIN ZebraDB.dbo.model a_m					ON a_m.model_id = a_v.model
+          
+                                            WHERE a_lm.veh_id = ${vehicleId}
+                                            AND a_lm.local_timestamp between '${dateEnginOn}'  AND (select dbo.GetEngineOff_BehindTime(${vehicleId},'${dateEnginOn}'))
+                                            AND (a_le.evt_id not in (22,23) OR a_le.evt_id is null)
+                  `);
+                if (resetEvent == "0") {
+                  var max = 0;
+                  var arrs = [];
+                  // const n = arr.values();
+                  for (var a of result3.recordset) {
+                    arrs.push(a.oil);
+                  }
+                  max = Math.max(
+                    ...arrs.map((item) => (isNaN(+item) ? 0 : +item))
+                  );
 
-                            FROM	ZebraDB_Log.dbo.log_msg a_lm
-                            LEFT JOIN ZebraDB_Log.dbo.log_msg_evt a_le      ON  a_lm.idx = a_le.ref_idx
-                            LEFT JOIN ZebraDB.dbo.vehicle a_v               ON a_lm.veh_id = a_v.veh_id
-                            LEFT JOIN ZebraDB.dbo.model a_m					ON a_m.model_id = a_v.model
-
-                                  WHERE a_lm.veh_id = ${vehicleId}
-                                  AND a_lm.local_timestamp between '${dateEnginOn}'  AND (select dbo.GetEngineOff_BehindTime(${vehicleId},'${dateEnginOn}'))
-                                  AND (a_le.evt_id not in (22,23) OR a_le.evt_id is null)
-        `);
-              if (resetEvent == "0") {
-                var max = 0;
-                var arrs = [];
-                // const n = arr.values();
-                for (var a of result3.recordset) {
-                  arrs.push(a.oil);
-                }
-                max = Math.max(
-                  ...arrs.map((item) => (isNaN(+item) ? 0 : +item))
-                );
-
-                if (result3.recordset.length > 5) {
-                  if (max - oilOff > 20) {
+                  if (result3.recordset.length > 5 && max - oilOff > 20) {
+                    if (j == 0) {
+                      arr.push({
+                        local_timestamp: dateEnginOn,
+                        maxOil: max,
+                        distance: result2.recordset[j].distance,
+                        time_off: result4.recordset[0].timeOff,
+                        oil_off: result4.recordset[0].oil,
+                        distance_off: result4.recordset[0].distance,
+                        timeStart: result2.recordset[j].time_off,
+                        oilStart: oilOff,
+                        disStart: result2.recordset[j].distance_off,
+                        timeEnd: result4.recordset[1].timeOff,
+                        oilEnd: result4.recordset[1].oil,
+                        disEnd: result4.recordset[1].distance,
+                        veh_type:
+                          result5.recordset.length < 1
+                            ? 0
+                            : result5.recordset[0].veh_type,
+                        veh_type_value:
+                          result5.recordset.length < 1
+                            ? 0
+                            : result5.recordset[0].value,
+                      });
+                    } else {
+                      arr.push({
+                        local_timestamp: dateEnginOn,
+                        maxOil: max,
+                        distance: result2.recordset[j].distance,
+                        time_off: result2.recordset[j].time_off,
+                        oil_off: oilOff,
+                        distance_off: result2.recordset[j].distance_off,
+                        veh_id: vehicleId,
+                        timeStart: result4.recordset[0].timeOff,
+                        oilStart: result4.recordset[0].oil,
+                        disStart: result4.recordset[0].distance,
+                        timeEnd: result4.recordset[1].timeOff,
+                        oilEnd: result4.recordset[1].oil,
+                        disEnd: result4.recordset[1].distance,
+                        veh_type:
+                          result5.recordset.length < 1
+                            ? 0
+                            : result5.recordset[0].veh_type,
+                        veh_type_value:
+                          result5.recordset.length < 1
+                            ? 0
+                            : result5.recordset[0].value,
+                      });
+                    }
+                  } else {
                     arr.push({
-                      local_timestamp: dateEnginOn,
-                      maxOil: max,
-                      distance: result2.recordset[j].distance,
-                      time_off: result2.recordset[j].time_off,
-                      oil_off: oilOff,
-                      distance_off: result2.recordset[j].distance_off,
-                      veh_id: vehicleId,
+                      local_timestamp: 0,
+                      maxOil: 0,
+                      distance: 0,
+                      time_off: 0,
+                      oil_off: 0,
+                      distance_off: 0,
                       timeStart: result4.recordset[0].timeOff,
                       oilStart: result4.recordset[0].oil,
                       disStart: result4.recordset[0].distance,
                       timeEnd: result4.recordset[1].timeOff,
                       oilEnd: result4.recordset[1].oil,
                       disEnd: result4.recordset[1].distance,
-                      veh_type: result5.recordset[0].veh_type,
-                      veh_type_value: result5.recordset[0].value,
+                      veh_type:
+                        result5.recordset.length < 1
+                          ? 0
+                          : result5.recordset[0].veh_type,
+                      veh_type_value:
+                        result5.recordset.length < 1
+                          ? 0
+                          : result5.recordset[0].value,
                     });
                   }
                 }
+              } catch (err) {
+                console.log(err);
+                next(err);
               }
-            } catch (err) {
-              console.log(err);
-              next(err);
             }
           }
         }
+
         return res.status(200).json(arr);
       } catch (err) {
         console.log(err);
@@ -853,5 +956,34 @@ router.get("/vehicleLog/oilVehicleType", isAuth, async (req, res, next) => {
     next(err);
   }
 });
+
+/* POST api/vehicle/vehVehType/ */
+router.get(
+  "/vehicle/vehVehType/:vehicleId/:vehTypeId",
+  isAuth,
+  async (req, res, next) => {
+    const { vehicleId, vehTypeId } = req.params;
+    if (!vehicleId || !vehTypeId) {
+      return next(ApiError.badRequest("Invalid credentials!"));
+    } else {
+      try {
+        const pool_zbq = await pool_zb_report();
+
+        const result = await pool_zbq.query(`
+        USE [ZebraDB_Report]
+        
+        EXEC [dbo].[sp_oil_insertandupdate_vehicletype] ${vehicleId}, ${vehTypeId}
+        SELECT * FROM ZebraDB_Report.dbo.oil_veh_vehType 
+        WHERE veh_id = ${vehicleId}
+      `);
+
+        return res.status(200).json(result.recordset);
+      } catch (err) {
+        console.log(err);
+        next(err);
+      }
+    }
+  }
+);
 
 module.exports = router;
